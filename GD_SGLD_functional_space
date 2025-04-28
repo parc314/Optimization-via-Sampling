@@ -1,0 +1,95 @@
+# By default it will run gradient descent
+# Uncomment line 80 to run SGLD
+# Uncomment line 80 and 81 to run regualrized RKHS SGLD 
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.special import hermite, factorial
+
+# Parameters
+K = 150
+x_min, x_max = -4, 4
+N_x = 500
+x = np.linspace(x_min, x_max, N_x)
+dx = (x_max - x_min) / (N_x - 1)
+w = dx
+beta = 2
+epsilon = 0.01
+sigma = 1.0
+lambda_reg = 0.01
+
+# Define domain
+domain = np.linspace(-4, 4, 500)  # Discretize [-5,5] finely
+
+# Define two "target" functions h1 and h2
+def h2(x):
+    return np.sin(x)
+
+def h1(x):
+    return np.cos(x)
+
+# f takes a function g (defined on domain) and returns a scalar
+def f(g_values):
+    diff1 = g_values - h1(domain)
+    diff2 = g_values - h2(domain)
+    integral1 = np.trapz(diff1**2, domain)
+    integral2 = np.trapz(diff2**2, domain)
+    return integral1 * integral2
+
+# Gradient of f in coefficient space
+def grad_f(c,a,b):
+    diff1 = c - a
+    diff2 = c - b
+    norm1_sq = np.dot(diff1, diff1)
+    norm2_sq = np.dot(diff2, diff2)
+    return 2 * diff1 * (norm2_sq + epsilon) + 2 * diff2 * norm1_sq
+
+# Construct Hermite basis functions (orthonormal in L^2(R))
+phi = np.zeros((K+1, N_x))
+for n in range(K+1):
+    Hn = hermite(n)
+    norm = np.sqrt((2**n) * factorial(n) * np.sqrt(np.pi))
+    phi[n, :] = Hn(x) * np.exp(-x**2/2) / norm
+
+# Compute Gaussian kernel eigenvalues (Mercer)
+eigvals = np.sqrt(2 * sigma**2 / (1 + sigma**2)) * (1 / (1 + sigma**2))**np.arange(K+1)
+
+# Sort eigenvalues descending (they already are, but for generality)
+eigvals_sorted = np.sort(eigvals)[::-1]
+
+# Define the S operator to project into the RKHS
+def S_operator(alpha_coeffs):
+    scaling = 1.0 / (1.0 + eta * lambda_reg / eigvals_sorted)
+    return alpha_coeffs * scaling
+
+# Compute the projection coefficients of each g onto the basis
+c1 = np.array([np.sum(h1(x) * phi[n, :]) * w for n in range(K+1)])
+c2 = np.array([np.sum(h2(x) * phi[n, :]) * w for n in range(K+1)])
+
+# SGLD parameters
+eta = 1e-4
+num_iters = 50000
+
+# Initialize coefficients and run SGLD
+alpha = np.ones(K+1)
+for t in range(1, num_iters + 1):
+    # Example gradient based on matching both targets
+    grad = grad_f(alpha,c1,c2)
+    noise = np.random.randn(K+1)
+    alpha = alpha - eta * grad 
+    # + np.sqrt(2 * eta / beta) * noise
+    # alpha = S_operator(alpha)
+
+# Reconstruct the final iterate
+f_final = alpha @ phi
+
+# Plot g1 and the final SGLD iterate
+plt.figure(figsize=(8, 5))
+plt.plot(x, h1(x), label='minmizer_function')
+plt.plot(x, f_final, label='f_final', linewidth=2)
+plt.legend()
+plt.xlabel('x')
+plt.ylabel('Function value')
+plt.title('Target Function vs. Final SGLD Iterate')
+plt.tight_layout()
+plt.show()
