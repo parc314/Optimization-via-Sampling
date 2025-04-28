@@ -1,0 +1,81 @@
+# Comaprison of GD, SGLD and improved diffusion on sublinear functions
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import fsolve
+
+# SGLD parameters
+eta = 1e-3       # step size
+n_steps = 50   # number of iterations
+beta=2
+sigma = np.sqrt(2*eta/beta)  # noise scale (assuming unit temperature)
+lambda_reg = 0.5      # regularization parameter for the operator S
+decay_c = 1
+dimensions = [2, 10, 50, 200]
+
+
+# Define our nonconvex function and its gradient on R^d.
+def f(x):
+    c = (x.ndim + 4)/2
+    return c*np.log(1 + 0.5 * np.dot(x, x))
+
+def grad_f(x):
+    # return x + alpha * np.cos(x)
+
+    #sublinear f(x) gradient
+    return x/(1 + 0.5 * np.dot(x, x))
+
+def drift(x):
+  return -0.5* (1+0.5*np.dot(x,x))*grad_f(x) + (1/2*beta)*x
+
+def diffusion(x):
+  return np.sqrt(1/beta)*np.sqrt(1+0.5*np.dot(x, x))
+
+xmin_scalar = 0
+print("Scalar minimizer approx:", xmin_scalar)
+
+def get_global_minimizer(d):
+    # For our separable function, the global minimizer is the vector with each coordinate equal to xmin_scalar.
+    return np.full((d,), xmin_scalar)
+
+def run_sgld(d, x0):
+    """
+    Run SGLD for a d-dimensional function.
+    Returns the distance from the minimizer at each iteration.
+    """
+    x = np.copy(x0)
+    x_min = get_global_minimizer(d)
+    distances = []
+
+    for i in range(n_steps):
+        grad = grad_f(x)
+        # SGLD update
+        noise = np.random.randn(d)
+        x = eta*drift(x) + np.sqrt(eta)*diffusion(x)*noise
+        distances.append(np.linalg.norm(f(x) - f(x_min)))
+    return np.array(distances)
+
+results = {}
+
+# We want the same initial Euclidean distance from the minimizer for each d.
+# Let delta be that distance.
+delta = 5.0   # total Euclidean distance from the minimizer.
+
+for d in dimensions:
+    x_min = get_global_minimizer(d)
+    # Create a direction vector that has unit norm:
+    direction = np.ones(d) / np.sqrt(d)
+    x0 = x_min + delta * direction  # ensures ||x0 - x_min|| = delta
+    print(f"Running SGLD for d = {d} with initial Euclidean distance = {np.linalg.norm(x0 - x_min):.2f}")
+    results[d] = run_sgld(d, x0)
+
+# Plotting the distance from the minimizer against iterations for each dimension.
+plt.figure(figsize=(10, 6))
+for d in dimensions:
+    plt.plot(results[d], label=f'd = {d}')
+plt.xlabel('Iteration')
+plt.ylabel('f(x) - f(x*)')
+plt.title('SGLD: Distance from the global minimizer across iterations')
+plt.legend()
+plt.grid(True)
+plt.show()
